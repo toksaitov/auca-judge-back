@@ -46,10 +46,13 @@ A client should query a status database to get progress information on its own.
 * *400*: invalid submission parameters (`id` or `submission`), details can be
   found in the body of the reply
 
+* *429* the maximum number of simultaneous submissions in progress was reached,
+  the client can repeat its request later
+
 * *500*: the test system has failed, details can be found in the body of the
   reply
 
-## Usage 
+## Usage
 
 * `npm install --global gulp-cli`: to install the command-line interface for the
   `gulp` build system

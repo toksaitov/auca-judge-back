@@ -8,6 +8,8 @@ const vm =
   require("vm");
 const util =
   require("util");
+const os =
+  require("os");
 
 const express =
   require("express");
@@ -82,6 +84,11 @@ const ProblemDirectory =
   "problems";
 const LoadProblemFromFile =
   false;
+
+const SubmissionsInProgressLimit =
+  os.cpus().length;
+let SubmissionsInProgress =
+  0;
 
 function loadProblemFromFile(problemID, onResultCallback) {
   let problemFile =
@@ -180,6 +187,22 @@ Server.use(bodyParser.urlencoded({
 }));
 
 Server.post("/submit", (request, response) => {
+  if (SubmissionsInProgress + 1 > SubmissionsInProgressLimit) {
+    let message =
+      "The maximum number of simultaneous submissions in progress was reached";
+
+    Logger.error(`${message}\n`);
+    Logger.error(`request:\n${util.inspect(request, { "depth": 2 })}\n`);
+
+    response.status(429).json({
+      "error": message
+    });
+
+    return;
+  }
+
+  ++SubmissionsInProgress;
+
   let submissionID =
     uuid.v4();
   let environment = [
@@ -191,6 +214,9 @@ Server.post("/submit", (request, response) => {
 
   let cleanup = () => {
     helpers.removeContainers(containers);
+
+    SubmissionsInProgress =
+      Math.max(SubmissionsInProgress - 1, 0);
   };
 
   let processError = parameters => {
