@@ -13,8 +13,8 @@ inside, get results back and save them in a state database.
 
 * *Node.js*, *npm* `>=4.4.3`, `>=2.15.2`
 * *Docker* `>= 1.10`
-* *MongoDB*, *MongoDB Tools* `>= 3.2.5`
 * *Redis* `>= 3.0.7`
+* *MongoDB*, *MongoDB Tools* `>= 3.2.5`
 
 ## Communication
 
