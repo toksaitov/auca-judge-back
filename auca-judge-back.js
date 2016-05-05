@@ -13,12 +13,10 @@ const express =
   require("express");
 const bodyParser =
   require("body-parser");
-/*
-  const redis =
-    require("redis");
-  const mongoose =
-    require("mongoose");
-*/
+const redis =
+  require("redis");
+const mongoose =
+  require("mongoose");
 const Dockerode =
   require("dockerode");
 const httpRequest =
@@ -36,27 +34,25 @@ const Server =
 const ServerPort =
   7070;
 
-/*
-  const RedisConnectionOptions =
-    null;
-  const Redis =
-    redis.createClient(
-      RedisConnectionOptions
-    );
-
-  const MongoConnectionOptions = {
-    "url": "mongodb://0.0.0.0:27017/auca_judge",
-    "options": null
-  };
-  const Mongo =
-    mongoose.createConnection(
-      MongoConnectionOptions.url,
-      MongoConnectionOptions.options
-    );
-  mongoose.model(
-    "Problem", require("./lib/models/problem.js")
+const RedisConnectionOptions =
+  null;
+const Redis =
+  redis.createClient(
+    RedisConnectionOptions
   );
-*/
+
+const MongoConnectionOptions = {
+  "url": "mongodb://0.0.0.0:27017/auca_judge",
+  "options": null
+};
+const Mongo =
+  mongoose.createConnection(
+    MongoConnectionOptions.url,
+    MongoConnectionOptions.options
+  );
+mongoose.model(
+  "Problem", require("./lib/models/problem.js")
+);
 
 const DockerConnectionOptions =
   null;
@@ -80,12 +76,12 @@ const Logger =
 const Problems =
   { };
 const Submissions =
-  { }; /* statuses */
+  { };
 
 const ProblemDirectory =
   "problems";
 const LoadProblemFromFile =
-  true; /* ToDo: change to `true` to load problem specs from MongoDB */
+  false;
 
 function loadProblemFromFile(problemID, onResultCallback) {
   let problemFile =
@@ -105,13 +101,41 @@ function loadProblemFromFile(problemID, onResultCallback) {
 }
 
 function loadProblem(problemID, onResultCallback) {
-  /* ToDo: get problem specs from MongoDB */
+  let Problem =
+    Mongo.model("Problem");
 
+  Problem.findById(problemID, (error, problem) => {
+    onResultCallback(error, problem);
+  });
 }
 
 function updateSubmissionInformation(submissionID) {
-  /* ToDo: save submission status to Redis as a hash under the key `submissionID` */
+  let submission =
+    Submissions[submissionID];
 
+  if (submission) {
+    submission =
+      Object.assign({}, submission);
+
+    let results =
+      submission["results"];
+
+    if (results) {
+      submission["results"] =
+        results.toString();
+    }
+
+    Redis.hmset(submissionID, submission, (error, reply) => {
+      if (error) {
+        Logger.error(
+          "Failed to update submission information " +
+          `for ${submissionID}.`
+        );
+        Logger.error(reply);
+        Logger.error(error);
+      }
+    });
+  }
 }
 
 function getSubmissionInformation(submissionID, onResultCallback) {
@@ -124,21 +148,32 @@ function getSubmissionInformation(submissionID, onResultCallback) {
     return;
   }
 
-  /* ToDo: get submission status as a hash from Redis under the key `submissionID` */
+  Redis.hgetall(submissionID, (error, submission) => {
+    if (!error) {
+      if (submission) {
+        let results =
+          submission["results"];
 
+        if (results) {
+          submission["results"] =
+            results.split(",");
+        }
+      }
+    }
+
+    onResultCallback(error, submission);
+  });
 }
 
-/*
-  Redis.on("error", error => {
-    Logger.error("The redis client has encountered an error");
-    Logger.error(error);
-  });
+Redis.on("error", error => {
+  Logger.error("The redis client has encountered an error");
+  Logger.error(error);
+});
 
-  Mongo.on("error", error => {
-    Logger.error("The mongo client has encountered an error");
-    Logger.error(error);
-  });
-*/
+Mongo.on("error", error => {
+  Logger.error("The mongo client has encountered an error");
+  Logger.error(error);
+});
 
 Server.use(bodyParser.urlencoded({
   "extended": true
@@ -845,8 +880,6 @@ Server.post("/submit", (request, response) => {
     }
   }
 });
-
-/* ToDo: remove the `/submissions` path to handle on the front end */
 
 Server.get("/submissions/:id", (request, response) => {
   let submissionID =
