@@ -19,6 +19,10 @@ const redis =
   require("redis");
 const mongoose =
   require("mongoose");
+mongoose.model(
+  "Problem",
+  require("./lib/models/problem.js")
+);
 const Dockerode =
   require("dockerode");
 const httpRequest =
@@ -43,6 +47,11 @@ const Redis =
     RedisConnectionOptions
   );
 
+Redis.on("error", error => {
+  Logger.error("The redis client has encountered an error");
+  Logger.error(error);
+});
+
 const MongoConnectionOptions = {
   "url": "mongodb://0.0.0.0:27017/auca_judge",
   "options": null
@@ -52,9 +61,11 @@ const Mongo =
     MongoConnectionOptions.url,
     MongoConnectionOptions.options
   );
-mongoose.model(
-  "Problem", require("./lib/models/problem.js")
-);
+
+Mongo.on("error", error => {
+  Logger.error("The mongo client has encountered an error");
+  Logger.error(error);
+});
 
 const DockerConnectionOptions =
   null;
@@ -64,10 +75,12 @@ const Docker =
   );
 
 const BuildAgentConnectionOptions = {
-  "port": "7742"
+  "port": "7742",
+  "host": "192.168.99.100"
 };
 const TestAgentConnectionOptions = {
-  "port": "7743"
+  "port": "7743",
+  "host": "192.168.99.100"
 };
 
 const Logger =
@@ -84,6 +97,9 @@ const ProblemDirectory =
   "problems";
 const LoadProblemFromFile =
   false;
+
+const TrustedEnvironment =
+  true;
 
 const SubmissionsInProgressLimit =
   os.cpus().length;
@@ -132,7 +148,7 @@ function updateSubmissionInformation(submissionID) {
         results.toString();
     }
 
-    Redis.hmset(submissionID, submission, (error, reply) => {
+    Redis.hmset(`submission:${submissionID}`, submission, (error, reply) => {
       if (error) {
         Logger.error(
           "Failed to update submission information " +
@@ -155,7 +171,7 @@ function getSubmissionInformation(submissionID, onResultCallback) {
     return;
   }
 
-  Redis.hgetall(submissionID, (error, submission) => {
+  Redis.hgetall(`submission:${submissionID}`, (error, submission) => {
     if (!error) {
       if (submission) {
         let results =
@@ -171,16 +187,6 @@ function getSubmissionInformation(submissionID, onResultCallback) {
     onResultCallback(error, submission);
   });
 }
-
-Redis.on("error", error => {
-  Logger.error("The redis client has encountered an error");
-  Logger.error(error);
-});
-
-Mongo.on("error", error => {
-  Logger.error("The mongo client has encountered an error");
-  Logger.error(error);
-});
 
 Server.use(bodyParser.urlencoded({
   "extended": true
@@ -204,7 +210,9 @@ Server.post("/submit", (request, response) => {
   ++SubmissionsInProgress;
 
   let submissionID =
-    uuid.v4();
+    TrustedEnvironment ?
+      (request.body["submission_id"] || uuid.v4()) : uuid.v4();
+
   let environment = [
     `SUBMISSION_ID=${submissionID}`
   ];
@@ -315,7 +323,7 @@ Server.post("/submit", (request, response) => {
     processError({
       "code": 400,
       "response": "Submission sources were not provided.",
-      "message": `Submission sources for a problem ID '${problemID}' ` +
+      "message": `Submission sources for the problem ID '${problemID}' ` +
                  "were not provided."
     });
 

@@ -18,14 +18,14 @@ inside, get results back and save them in a state database.
 
 ## Communication
 
-*auca-judge-back* responds to the following HTTP request
+*auca-judge-back* responds to the following HTTP requests
 
 **POST** */submit*
 
 ```http
 Content-Type: application/x-www-form-urlencoded
 
-id=<problem ID>&submission=<urlencoded sources>
+id=<problem ID>&&submission=<urlencoded sources>&&[submission_id=<optional custom submission ID>]
 ```
 
 For the */submit* request *auca-judge-back* creates a new submission entry in
@@ -35,6 +35,9 @@ inside the container, waits for a compiled artifact, sequentally starts
 containers for each test case, sends compiled or raw artifacts with input data
 to test agents, waits for results, compares them with correct data, finally,
 saves test reports, errors, general task information to a status database.
+
+Custom submission IDs can only be used in a trusted environment. For any other
+case *auca-judge-back* will generate a random version 4 UUID.
 
 *auca-judge-back* will instantly send a reply upon successful task submission.
 A client should query a status database to get progress information on its own.
@@ -51,6 +54,19 @@ A client should query a status database to get progress information on its own.
 
 * *500*: the test system has failed, details can be found in the body of the
   reply
+
+**GET** */submission/<submission ID>*
+
+The `/submission/<submission ID>` path returns information from the status
+database about a submission under the specified ID.
+
+```json
+{
+  "id": "submission ID",
+  "status": "in progress|building|testing|failed|finished",
+  "results": ["passed", "passed", "failed"]
+}
+```
 
 ## Usage
 
