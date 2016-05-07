@@ -75,12 +75,10 @@ const Docker =
   );
 
 const BuildAgentConnectionOptions = {
-  "port": "7742",
-  "host": "192.168.99.100"
+  "port": "7742"
 };
 const TestAgentConnectionOptions = {
-  "port": "7743",
-  "host": "192.168.99.100"
+  "port": "7743"
 };
 
 const Logger =
