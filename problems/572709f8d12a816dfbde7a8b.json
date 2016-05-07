@@ -2,12 +2,10 @@
   "_id": { "$oid": "572709f8d12a816dfbde7a8b" },
   "build": {
     "image": "toksaitov/images:auca-judge-c-build",
-    "volume": "./tmp/auca-judge-c-build/",
     "extension": ".c"
   },
   "test": {
     "image": "toksaitov/images:auca-judge-c-test",
-    "volume": "./tmp/auca-judge-c-test/",
     "preprocess": true,
     "continueOnFailure": true,
     "tests": [
