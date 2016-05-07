@@ -1,27 +1,17 @@
-# Use the `auca-judge-agent` image as a base (a `golang:onbuild` variant).
+# Use the `auca-judge-agent` image as a base image.
 
 FROM toksaitov/images:auca-judge-agent
 
 # Install the GNU C Compiler.
 
-RUN apt-get update && apt-get install gcc
+RUN apk add --no-cache musl-dev gcc
 
-# Create a working directory for the build agent.
+# Create a working directory for the build agent (specified in the agent's
+# configuration file).
 
 RUN mkdir /submission
 
-# Copy the build agent's configuration files and use the newly created directory
-# as its working directory to load the files.
-
-COPY agent /agent/
-WORKDIR /agent
-
-# Expose the build agent's communication port.
+# Expose the build agent's communication port (set in the agent's
+# configuration file).
 
 EXPOSE 7742
-
-# `golang:onbuild` images compile sources into a binary under the name `app`.
-
-# Start the build agent on `run` commands.
-
-CMD app
