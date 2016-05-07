@@ -19,6 +19,11 @@ const DatabaseName =
 const CollectionName =
   "problems";
 
+const DockerHubUser =
+  "toksaitov"
+const DockerHubRepository =
+  "images"
+
 function formDirectoryListForDirectory(directory) {
   let entries =
     fs.readdirSync(directory);
@@ -32,19 +37,19 @@ function formDirectoryListForDirectory(directory) {
 }
 
 function buildDirectory(directory, onFinishCallback) {
-  let location =
-    path.join(directory, "build-image.sh");
-  let buildScript =
-    path.resolve(location);
+  let tag =
+    path.basename(directory);
+  let docker =
+    "docker";
   let args =
-    [];
+    [ "build", `--tag="${DockerHubUser}/${DockerHubRepository}:${tag}"`, "." ];
   let options = {
     "cwd": directory,
     "stdio": "inherit"
   };
 
   let command =
-    spawn(buildScript, args, options);
+    spawn(docker, args, options);
 
   command.on("close", () => {
     onFinishCallback();
