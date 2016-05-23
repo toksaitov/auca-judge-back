@@ -20,8 +20,7 @@ const redis =
 const mongoose =
   require("mongoose");
 mongoose.model(
-  "Problem",
-  require("./lib/models/problem.js")
+  "Problem", require("./lib/models/problem.js")
 );
 const Dockerode =
   require("dockerode");
@@ -40,31 +39,42 @@ const Server =
 const ServerPort =
   7070;
 
-const RedisConnectionOptions =
-  null;
-const Redis =
+const StateDatabaseConnectionOptions = {
+  "host": "auca-judge-state-db",
+  "port": 6379
+};
+const StateDatabase =
   redis.createClient(
-    RedisConnectionOptions
+    StateDatabaseConnectionOptions
   );
 
-Redis.on("error", error => {
-  Logger.error("The redis client has encountered an error");
+StateDatabase.on("error", error => {
+  Logger.error("The state database client has encountered an error");
   Logger.error(error);
 });
 
-const MongoConnectionOptions = {
-  "url": "mongodb://0.0.0.0:27017/auca_judge",
-  "options": null
+const ProblemDatabaseConnectionOptions = {
+  "url": "mongodb://auca-judge-problem-db:27017/auca_judge",
+  "options": { }
 };
-const Mongo =
+const ProblemDatabase =
   mongoose.createConnection(
-    MongoConnectionOptions.url,
-    MongoConnectionOptions.options
+    ProblemDatabaseConnectionOptions["url"],
+    ProblemDatabaseConnectionOptions["options"]
   );
 
-Mongo.on("error", error => {
-  Logger.error("The mongo client has encountered an error");
+ProblemDatabase.on("error", error => {
+  Logger.error("The problem database client has encountered an error");
   Logger.error(error);
+});
+ProblemDatabase.on("open", () => {
+  Logger.info("Connected to the problem database");
+});
+ProblemDatabase.on("reconnected", () => {
+  Logger.info("Reconnected to the problem database");
+});
+ProblemDatabase.on("close", () => {
+  Logger.warn("Disconnected from the problem database");
 });
 
 const DockerConnectionOptions =
@@ -75,10 +85,12 @@ const Docker =
   );
 
 const BuildAgentConnectionOptions = {
-  "port": "7742"
+  "port": "7742",
+  "network": "aucajudge_default"
 };
 const TestAgentConnectionOptions = {
-  "port": "7743"
+  "port": "7742",
+  "network": "aucajudge_default"
 };
 
 const Logger =
@@ -93,9 +105,6 @@ const Submissions =
 
 const ProblemDirectory =
   "problems";
-const LoadProblemFromFile =
-  false;
-
 const TrustedEnvironment =
   true;
 
@@ -123,11 +132,31 @@ function loadProblemFromFile(problemID, onResultCallback) {
 
 function loadProblem(problemID, onResultCallback) {
   let Problem =
-    Mongo.model("Problem");
+    ProblemDatabase.model("Problem");
 
   Problem.findById(problemID, (error, problem) => {
-    onResultCallback(error, problem);
+    if (error || !problem) {
+      loadProblemFromFile(problemID, (error, problem) => {
+        if (!error && problem) {
+          saveProblem(problemID, problem, error => { });
+        }
+
+        onResultCallback(error, problem);
+      });
+    } else {
+      onResultCallback(null, problem);
+    }
   });
+}
+
+function saveProblem(problemID, problemData, onResultCallback) {
+  let Problem =
+    ProblemDatabase.model("Problem");
+
+  let problem =
+    new Problem(problemData);
+
+  problem.save(onResultCallback);
 }
 
 function updateSubmissionInformation(submissionID) {
@@ -146,7 +175,10 @@ function updateSubmissionInformation(submissionID) {
         results.toString();
     }
 
-    Redis.hmset(`submission:${submissionID}`, submission, (error, reply) => {
+    let key =
+      `submission:${submissionID}`;
+
+    StateDatabase.hmset(key, submission, (error, reply) => {
       if (error) {
         Logger.error(
           "Failed to update submission information " +
@@ -169,7 +201,10 @@ function getSubmissionInformation(submissionID, onResultCallback) {
     return;
   }
 
-  Redis.hgetall(`submission:${submissionID}`, (error, submission) => {
+  let key =
+    `submission:${submissionID}`;
+
+  StateDatabase.hgetall(key, (error, submission) => {
     if (!error) {
       if (submission) {
         let results =
@@ -184,6 +219,107 @@ function getSubmissionInformation(submissionID, onResultCallback) {
 
     onResultCallback(error, submission);
   });
+}
+
+function extractLocalHost(agentNetwork, containerData) {
+  let containerHost =
+    null;
+
+  try {
+    let containerNetworks =
+      null;
+
+    try {
+      containerNetworks =
+        containerData["NetworkSettings"]["Networks"][agentNetwork];
+    } catch (ignored) {
+      containerNetworks =
+        Object.keys(containerData["NetworkSettings"]["Networks"])[0];
+    }
+
+    containerHost =
+      containerNetworks["IPAddress"];
+  } catch(ignored) { }
+
+  return containerHost;
+};
+
+function extractExternalHost(agentPort, containerData) {
+  let containerHost =
+    null;
+
+  try {
+    let containerBindings =
+      containerData["NetworkSettings"]["Ports"][`${agentPort}/tcp`][0];
+    containerHost =
+      containerBindings["HostIp"];
+  } catch (ignored) { }
+
+  return containerHost;
+};
+
+function extractExternalPort(agentPort, containerData) {
+  let containerPort =
+    null;
+
+  try {
+    let containerBindings =
+      containerData["NetworkSettings"]["Ports"][`${agentPort}/tcp`][0];
+    containerPort =
+      containerBindings["HostPort"];
+  } catch (ignored) { }
+
+  return containerPort;
+};
+
+function getContainerURL(connectionOptions, containerData) {
+  let containerURL =
+    null;
+
+  let agentHost =
+    connectionOptions["host"];
+  let agentPort =
+    connectionOptions["port"];
+  let agentNetwork =
+    connectionOptions["network"];
+
+  let containerHost =
+    null;
+  let containerPort =
+    null;
+
+  if (agentNetwork) {
+    containerHost =
+      agentHost || extractLocalHost(agentNetwork, containerData);
+    containerPort =
+      agentPort;
+
+    if (!containerHost) {
+      containerHost =
+        agentHost || extractExternalHost(agentPort, containerData);
+      containerPort =
+        extractExternalPort(agentPort, containerData) || agentPort;
+    }
+  } else {
+    containerHost =
+      agentHost || extractExternalHost(agentPort, containerData);
+    containerPort =
+      extractExternalPort(agentPort, containerData) || agentPort;
+
+    if (!containerHost) {
+      containerHost =
+        agentHost || extractLocalHost(null, containerData);
+      containerPort =
+        agentPort;
+    }
+  }
+
+  if (containerHost && containerPort) {
+    containerURL =
+      `http://${containerHost}:${containerPort}`;
+  }
+
+  return containerURL;
 }
 
 Server.use(bodyParser.urlencoded({
@@ -334,14 +470,12 @@ Server.post("/submit", (request, response) => {
   if (problem) {
     processProblem(problem);
   } else {
-    let loader =
-      LoadProblemFromFile ? loadProblemFromFile : loadProblem;
-
-    loader(problemID, (error, problem) => {
-      if (error) {
+    loadProblem(problemID, (error, problem) => {
+      if (error || !problem) {
         processError({
           "code": 500,
-          "response": "No problem definitions were found for the provided ID.",
+          "response": "No problem definitions were found for the " +
+                      "provided ID.",
           "error": error,
           "message": "Failed to load a problem definition for " +
                      `the ID '${problemID}'.`
@@ -463,6 +597,14 @@ Server.post("/submit", (request, response) => {
         "Tty": false
       };
 
+      let testAgentNetwork =
+        TestAgentConnectionOptions["network"];
+
+      if (testAgentNetwork) {
+        options["HostConfig"]["NetworkMode"] =
+          testAgentNetwork;
+      }
+
       Docker.run(testImage, command, streams, options, error => {
         if (error) {
           processError({
@@ -489,26 +631,10 @@ Server.post("/submit", (request, response) => {
             return;
           }
 
-          let testAgentHost =
-            BuildAgentConnectionOptions["host"];
-          let testAgentPort =
-            TestAgentConnectionOptions["port"];
+          let containerURL =
+            getContainerURL(TestAgentConnectionOptions, data);
 
-          let containerBindings =
-            "";
-          let containerHost =
-            "";
-          let containerPort =
-            "";
-
-          try {
-            containerBindings =
-              data["NetworkSettings"]["Ports"][`${testAgentPort}/tcp`][0];
-            containerHost =
-              testAgentHost || containerBindings["HostIp"];
-            containerPort =
-              containerBindings["HostPort"];
-          } catch (error) {
+          if (!containerURL) {
             processError({
               "error": error,
               "message": "Failed to extract host and port information of the " +
@@ -519,23 +645,23 @@ Server.post("/submit", (request, response) => {
             return;
           }
 
-          let containerURL =
-            `http://${containerHost}:${containerPort}/process`;
+          let requestURL =
+            `${containerURL}/process`;
 
           setTimeout(() => {
             let attempts = 3;
-            accessTestAgent(containerURL, attempts);
+            accessTestAgent(requestURL, attempts);
           }, 250);
         });
 
-        function accessTestAgent(testAgentURL, attempts) {
+        function accessTestAgent(requestURL, attempts) {
           let testInputFile =
             `${submissionID}.input`;
           let testOutputFile =
             `${submissionID}.output`;
 
           let testAgentRequestOptions = {
-            "url": testAgentURL,
+            "url": requestURL,
             "json": true,
             "body": {
               "files": {
@@ -559,7 +685,7 @@ Server.post("/submit", (request, response) => {
 
               if (attempts > 0) {
                 setTimeout(() => {
-                  accessTestAgent(testAgentURL, attempts - 1);
+                  accessTestAgent(requestURL, attempts - 1);
                 }, 500);
               }
 
@@ -730,6 +856,14 @@ Server.post("/submit", (request, response) => {
         "Tty": false
       };
 
+      let buildAgentNetwork =
+        BuildAgentConnectionOptions["network"];
+
+      if (buildAgentNetwork) {
+        options["HostConfig"]["NetworkMode"] =
+          buildAgentNetwork;
+      }
+
       Docker.run(buildImage, command, streams, options, error => {
         if (error) {
           processError({
@@ -759,26 +893,10 @@ Server.post("/submit", (request, response) => {
             return;
           }
 
-          let buildAgentHost =
-            BuildAgentConnectionOptions["host"];
-          let buildAgentPort =
-            BuildAgentConnectionOptions["port"];
+          let containerURL =
+            getContainerURL(BuildAgentConnectionOptions, data);
 
-          let containerBindings =
-            "";
-          let containerHost =
-            "";
-          let containerPort =
-            "";
-
-          try {
-            containerBindings =
-              data["NetworkSettings"]["Ports"][`${buildAgentPort}/tcp`][0];
-            containerHost =
-              buildAgentHost || containerBindings["HostIp"];
-            containerPort =
-              containerBindings["HostPort"];
-          } catch (error) {
+          if (!containerURL) {
             processError({
               "error": error,
               "message": "Failed to extract host and port information of the " +
@@ -789,16 +907,16 @@ Server.post("/submit", (request, response) => {
             return;
           }
 
-          let containerURL =
-            `http://${containerHost}:${containerPort}/process`;
+          let requestURL =
+            `${containerURL}/process`;
 
           setTimeout(() => {
             let attempts = 3;
-            accessBuildAgent(containerURL, attempts);
+            accessBuildAgent(requestURL, attempts);
           }, 250);
         });
 
-        function accessBuildAgent(buildAgentURL, attempts) {
+        function accessBuildAgent(requestURL, attempts) {
           let submissionFile =
             `${submissionID}${buildExtension}`;
           let submissionData =
@@ -809,7 +927,7 @@ Server.post("/submit", (request, response) => {
             `${submissionID}${submissionArtifactExtension}`;
 
           let buildAgentRequestOptions = {
-            "url": buildAgentURL,
+            "url": requestURL,
             "json": true,
             "body": {
               "files": {
@@ -832,11 +950,11 @@ Server.post("/submit", (request, response) => {
 
               if (attempts > 0) {
                 setTimeout(() => {
-                  accessBuildAgent(buildAgentURL, attempts - 1);
+                  accessBuildAgent(requestURL, attempts - 1);
                 }, 500);
               }
 
-	      return;
+              return;
             }
 
             let submissionExitStatus =
