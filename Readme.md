@@ -12,7 +12,7 @@ inside, get results back and save them in a state database.
 # Services
 
 *auca-judge-back* is part of the [auca-judge](https://github.com/toksaitov/auca-judge)
-system to test code submissions to help to conduct laboratory classes or
+system to test code submissions to help conducting laboratory classes and
 programming contests at [AUCA](https://auca.kg).
 
 * UI front
