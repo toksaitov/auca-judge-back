@@ -105,6 +105,20 @@ to manage `/etc/hosts` files across containers automatically.
 
 Ensure there is a way to connect to an instance of Docker Engine.
 
+If you would like to run the service outside of a Docker container, ensure to
+remove the Docker network entry in `auca-judge-back.js`
+
+```javascript
+const BuildAgentConnectionOptions = {
+  "port": "7742"
+  // "network": "aucajudge_default"
+};
+const TestAgentConnectionOptions = {
+  "port": "7742"
+  // "network": "aucajudge_default"
+};
+```
+
 ## Usage
 
 First, build all the images in [auca-judge-images](https://github.com/toksaitov/auca-judge-images).
