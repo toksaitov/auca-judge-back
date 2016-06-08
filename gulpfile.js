@@ -1,73 +1,26 @@
 "use strict";
 
-const gulp =
-  require("gulp");
-const spawn =
-  require("child_process").spawn;
 const fs =
   require("fs");
 const path =
   require("path");
 
-const ImageDirectory =
-  "images";
+const gulp =
+  require("gulp");
+const mongoose =
+  require("mongoose");
+mongoose.model(
+  "Problem", require("./lib/models/problem.js")
+);
+
 const ProblemDirectory =
   "problems";
 
-const DatabaseName =
-  "auca_judge";
-const CollectionName =
-  "problems";
+const ProblemDatabaseConnectionOptions = {
+  "url": "mongodb://auca-judge-problem-db:27017/auca-judge",
+  "options": { }
+};
 
-const DockerHubUser =
-  "toksaitov"
-const DockerHubRepository =
-  "images"
-
-function formDirectoryListForDirectory(directory) {
-  let entries =
-    fs.readdirSync(directory);
-
-  entries =
-    entries.map(entry => path.join(directory, entry));
-  entries =
-    entries.filter(entry => fs.statSync(entry).isDirectory());
-
-  return entries;
-}
-
-function buildDirectory(directory, onFinishCallback) {
-  let tag =
-    path.basename(directory);
-  let docker =
-    "docker";
-  let args =
-    [ "build", `--tag="${DockerHubUser}/${DockerHubRepository}:${tag}"`, "." ];
-  let options = {
-    "cwd": directory,
-    "stdio": "inherit"
-  };
-
-  let command =
-    spawn(docker, args, options);
-
-  command.on("close", () => {
-    onFinishCallback();
-  });
-}
-
-function buildDirectories(directories, onFinishCallback) {
-  let directory =
-    directories.shift();
-
-  if (directory) {
-    buildDirectory(directory, () => {
-      buildDirectories(directories, onFinishCallback);
-    });
-  } else {
-    onFinishCallback();
-  }
-}
 
 function formProblemListForDirectory(directory) {
   let entries =
@@ -83,73 +36,74 @@ function formProblemListForDirectory(directory) {
   return entries;
 }
 
-function dropCollection(collection, onFinishCallback) {
-  let dbcli =
-    "mongo";
-  let args = [
-    `${DatabaseName}`,
-    `--eval=db.getCollection("${collection}").drop()`
-  ];
-  let options = {
-    "stdio": "inherit"
-  };
+function removeProblemCollection(onFinishCallback) {
+  console.log(`Removing the collection 'problems'.`);
 
-  let command =
-    spawn(dbcli, args, options);
+  let Problem =
+    mongoose.model("Problem");
 
-  command.on("close", () => {
+  Problem.remove({}, error => {
+    if (error) {
+      console.error(error);
+      throw error;
+    }
+
     onFinishCallback();
   });
 }
 
-function importProblem(problem, onFinishCallback) {
-  let resolvedProblem =
-    path.resolve(problem);
+function importProblem(problemFile, onFinishCallback) {
+  let problemData =
+    JSON.parse(fs.readFileSync(problemFile, "utf8"));
 
-  let dbimporter =
-    "mongoimport";
-  let args = [
-    `--db="${DatabaseName}"`,
-    '--collection="problems"',
-    `--file="${resolvedProblem}"`
-  ];
-  let options = {
-    "stdio": "inherit"
-  };
+  problemData["_id"] =
+    new mongoose.Types.ObjectId(problemData["_id"]["$oid"]);
 
-  let command =
-    spawn(dbimporter, args, options);
+  console.log(`Importing the document '${problemFile}'.`);
 
-  command.on("close", () => {
-    onFinishCallback();
-  });
-}
+  let Problem =
+    mongoose.model("Problem");
 
-function importProblems(problems, onFinishCallback) {
   let problem =
-    problems.shift();
+    new Problem(problemData);
 
-  if (problem) {
-    importProblem(problem, () => {
-      importProblems(problems, onFinishCallback);
+  problem.save(error => {
+    if (error) {
+      console.error(error);
+      throw error;
+    }
+
+    onFinishCallback();
+  });
+}
+
+function importProblems(problemFiles, onFinishCallback) {
+  let problemFile =
+    problemFiles.shift();
+
+  if (problemFile) {
+    importProblem(problemFile, () => {
+      importProblems(problemFiles, onFinishCallback);
     });
   } else {
-    onFinishCallback();
+    mongoose.disconnect(() => {
+      onFinishCallback();
+    });
   }
 }
 
-gulp.task("images", onFinishCallback => {
-  let directories =
-    formDirectoryListForDirectory(ImageDirectory);
-
-  buildDirectories(directories, onFinishCallback);
-});
-
 gulp.task("problems", onFinishCallback => {
-  dropCollection(CollectionName, () => {
-    let problems =
-        formProblemListForDirectory(ProblemDirectory);
+  mongoose.connect(
+    ProblemDatabaseConnectionOptions["url"],
+    ProblemDatabaseConnectionOptions["options"]
+  );
 
-    importProblems(problems, onFinishCallback);
+  removeProblemCollection(() => {
+    let problemFiles =
+      formProblemListForDirectory(ProblemDirectory);
+
+    importProblems(problemFiles, onFinishCallback);
   });
 });
+
+gulp.task("default", ["problems"]);
